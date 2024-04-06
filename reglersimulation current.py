@@ -8,12 +8,13 @@ def main():
                             "pFactor" : 0.25 ,
                             "iFactor" : 0.035 , "iLength" : 5,
                             "dFactor" : 1 , "dLength" : 2 ,
+                            "belowZero" : False, #if the controller can go below zero
                             "delay": 1, #how long the controller takes to impact the system
                             "latency" : 2 , #how long the controller takes to react to changes in the system
                             "simulationLength" : 201 ,
                             "startValue" : 0 ,
                             "targetValue" : 100 ,
-                            "deviation": 1, "deviationReference": 20, #deviation is a factor
+                            "deviation": 1, "deviationReference": 80, #deviation is a factor
                             "anaLength": 10, #Percentage of the simulation length that will be used to calculate the median
                             "printDataRows": False,
                             "timeUnit": "s",
@@ -214,7 +215,10 @@ def calculateSimulation(sp, dataVector):
         
         dataVector["controller total"][current_Timestep] = pValue + iValue + dValue
         #Since the maximum rate of change is limited by factors like the power of a heating element, the controller can't change the system faster than the maximum rate of change
-        dataVector["effective controller total"][current_Timestep] = min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"])
+        if sp["belowZero"] == True:
+            dataVector["effective controller total"][current_Timestep] = min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"])
+        elif sp["belowZero"] == False:
+            dataVector["effective controller total"][current_Timestep] = max(min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"]),0)
         dataVector["pController"][current_Timestep] = pValue
         dataVector["iController"][current_Timestep] = iValue
         dataVector["dController"][current_Timestep] = dValue
@@ -240,9 +244,6 @@ def calculateSimulation(sp, dataVector):
 
 
 def createDataVector(sp):
-    #sp is the SimulationParameters Dict
-    #= offset
-
     varlist = [
         "uncorrected system value",
         "delta_controlled",
