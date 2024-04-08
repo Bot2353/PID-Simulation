@@ -73,6 +73,7 @@ def plotGraphs(sp, dataVector):
     #Delta graph
     ax2 = plt.subplot2grid(plotGrid,(3,0),colspan= 4, rowspan = 2)
 
+
     #PID Value graphs
     
     #Total controller output and effective impact
@@ -96,18 +97,18 @@ def plotGraphs(sp, dataVector):
     ax1.axhline(y= dataVector["analytics"]["median corrected"], color="blue", linestyle=('dashed'), linewidth= lineWidth, label=f"median controlled = {round(dataVector['analytics']['median corrected'],3)}")
     ax1.axhline(y= dataVector["analytics"]["median uncorrected"], color="orange", linestyle=('dashed'), linewidth= lineWidth, label=f"median uncontrolled = {round(dataVector['analytics']['median uncorrected'],3)}")
 
-
+    #Delta graph
     ax2.set_title("Delta between the system's values and target value over time")
     ax2.axhline(y= 0, color="black", linestyle=('dashed'), linewidth= lineWidth, label=f"ideal delta of 0")
-    #ax2.axhline(y= getMedian(sp, dataVector), color="purple", linestyle=('dashed'), linewidth= lineWidth, label=f"median of the last {-medianLen}\ndelta values")
+    #Inverting the delta for better readability
     delta_controlled_forGraph = [-1 * i for i in dataVector["delta_controlled"]]
     delta_uncontrolled_forGraph = [-1 * i for i in dataVector["delta_uncontrolled"]]
+    
     ax2.step(length, delta_controlled_forGraph, where="post", linewidth= lineWidth, color="blue", label="delta of system using controller")
     ax2.step(length, delta_uncontrolled_forGraph, where="post", linewidth= lineWidth, color="orange", label="delta of system without controller")
 
-
+    #Total controller output graph
     ax3.set_title("Total controller output and effective impact over time")
-    
     ax3.step(length, dataVector["effective controller total"],where="post", linewidth= lineWidth, color="blue", label = f"Effective controller impact \n({sp['activeControllers'].upper()} component/s")
     ax3.step(length, dataVector["controller total"],where="post", color="lightblue", linestyle=('dotted'), label = f"Total controller impulse \n({sp['activeControllers'].upper()} component/s)")
     ax3.axhline(y= sp["maxRateOfChange"], color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"maximal rate of change \n= {sp['maxRateOfChange']} {sp['unit']} / {sp['timeUnit']}")
@@ -115,24 +116,25 @@ def plotGraphs(sp, dataVector):
         ax3.axhline(y= 0, color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"minimal rate of change = 0")
     ax3.plot(length, dataVector["impact on system"], linewidth= lineWidth, color = "purple", label = f"Resulting real impact\nrespecting timing and deviation")
 
-
+    #Controller output graphs
+    #P-Controller output
     ax4.set_title("P-Controller output over time")
     ax4.step(length, dataVector["pController"], where="post", linewidth= lineWidth, color="blue")
 
-
+    #I-Controller output
     ax5.set_title("I-Controller output over time")
     ax5.step(length, dataVector["iController"], where="post", linewidth= lineWidth, color="blue")
 
-
+    #D-Controller output
     ax6.set_title("D-Controller output over time")
     ax6.step(length, dataVector["dController"], where="post", linewidth= lineWidth, color="blue")
 
-
+    #Deviation graph (shows the natural drift of the system towards the baseline value)
     ax7.set_title(f"System drift \n(towards baseline)")
     ax7.axhline(y= 0, color='red', linestyle=('dashed'), linewidth= lineWidth)
     ax7.plot(length, dataVector["system drift"],  linewidth= lineWidth, color="black")
 
-
+    #Adjusting labels to show units
     for i in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]:
         i.set_xlabel(f"Simulation timesteps [{sp['timeUnit']}]")
         if i == ax1:
@@ -145,8 +147,8 @@ def plotGraphs(sp, dataVector):
         elif i == ax7:
             i.set_ylabel(f"{sp['unitName']} \ndeviation [{sp['unit']}]")
         i.set_facecolor("white")
-        #i.set_xlim(-3, sp["simulationLength"])
 
+    #Scale legend font for readability on FHD screens
     fontscl = 6
     ax1.legend(fontsize = fontscl)
     ax2.legend(fontsize = fontscl)
@@ -163,6 +165,7 @@ def getMedian(sp, dataVector):
     return np.median(dataVector["corrected system value"][medianLength(sp["simulationLength"],sp["medianLength"]):])
 
 def getAnalytics(sp, dataVector):
+    #Calculates analytics to display in the graph and for automated analysis
     timeWindow = round(sp["simulationLength"] / 100 * sp["anaLength"])
     dataVector["analytics"] = {}
     dataVector["analytics"]["median corrected"] = np.median(dataVector["corrected system value"][-timeWindow:])
@@ -178,17 +181,15 @@ def calculateSimulation(sp, dataVector):
     #sp is the SimulationParameters Dict
     #dataVector is the dataVector in which all data will be stored
 
-    #Iterates over enough timesteps to do the simulation.
-    #Skipping the last "latency" numbers of the list. This is because the last values won't be part of the graph anyways.
+    #Iterates over all timesteps in the simulation.
     for current_Timestep in range(sp["simulationLength"]):
 
-        #dataVector["corrected system value"][current_Timestep] is the current value of the system
+        #dataVector["un/corrected system value"][current_Timestep] is the current value of the system
         current_Value_Controlled = dataVector["corrected system value"][current_Timestep]
         current_Value_Uncontrolled = dataVector["uncorrected system value"][current_Timestep]
-        #dataVector["corrected system value"][calculation_Timestep] is the value that is being calculated because of latency
-      
             
-        #Calculates the current Delta and enters it
+            
+        #Calculates the current Delta and stores it
         dataVector["delta_controlled"][current_Timestep] = sp["targetValue"] - current_Value_Controlled
         dataVector["delta_uncontrolled"][current_Timestep] = sp["targetValue"] - current_Value_Uncontrolled
         
@@ -200,14 +201,15 @@ def calculateSimulation(sp, dataVector):
 
         #Calculates the movement of the system without a controller
         #For the first values (for timesteps in "latency") and if the value is below the target, the system will move towards the target value at full speed
+        #Waits for "latency" and "delay" because the uncontrolled system has no delay. It is assumed that since switching is between boolean values the system will react instantly.
         if current_Timestep in range(sp["latency"] + sp["delay"]) or dataVector["uncorrected system value"][current_Timestep - sp["latency"]] >= sp["targetValue"]:
             dataVector["uncorrected system value"][current_Timestep + sp["delay"]] = dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled
         #In case the system is above the target value there will be no change other than the natural tendency of the system to move towards the baseline value    
         elif dataVector["uncorrected system value"][current_Timestep - sp["latency"]] < sp["targetValue"]:
             dataVector["uncorrected system value"][current_Timestep + sp["delay"]] = dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled + sp["maxRateOfChange"]
         
-         
 
+        #Calculates what the controller does
         #The controller can't act for the first timesteps because of latency. Only the deviation has an impact
         if dataVector["corrected system value"][current_Timestep] == sp["startValue"] or current_Timestep in range(sp["latency"]):  
             dataVector["corrected system value"][current_Timestep + sp["delay"]] = dataVector["corrected system value"][current_Timestep] + deviation_controlled
