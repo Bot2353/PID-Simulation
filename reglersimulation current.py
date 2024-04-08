@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 def main():
     simulationParameters = {"activeControllers" : "pi".lower(),
                             "maxRateOfChange" : 10,  #factor that determines how fast the system is able to be changed with/without a controller
-                            "pFactor" : 0.25 ,
-                            "iFactor" : 0.035 , "iLength" : 5,
+                            "pFactor" : 0.3 ,
+                            "iFactor" : 0.02 , "iLength" : 5,
                             "dFactor" : 1 , "dLength" : 2 ,
-                            "belowZero" : False, #if the controller can go below zero
+                            "belowZero" : True, #if the controller can go below zero
                             "delay": 1, #how long the controller takes to impact the system
                             "latency" : 2 , #how long the controller takes to react to changes in the system
                             "simulationLength" : 201 ,
@@ -20,6 +20,10 @@ def main():
                             "timeUnit": "s",
                             "unitName": "Temperature",
                             "unit": "°C",
+                            "deviationStart": 30,
+                            "deviationValue" : 10,
+                            "deviationLength": 10,
+                            "deviationStyle": "constant" #point or constant
                             }
     
     #Creates a "dataVector" in which all simulation data will be stored.
@@ -105,6 +109,8 @@ def plotGraphs(sp, dataVector):
     ax3.step(length, dataVector["effective controller total"],where="post", label = f"Effective controller impact \n({sp['activeControllers'].upper()} component/s")
     #ax3.step(length, dataVector["impact on system"],where="post", label = "Controller value \nminus system deviation")
     ax3.axhline(y= sp["maxRateOfChange"], color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"maximal rate of change \n= {sp['maxRateOfChange']} {sp['unit']} / {sp['timeUnit']}")
+    if sp["belowZero"] == False:
+        ax3.axhline(y= 0, color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"minimal rate of change = 0")
     ax3.plot(length, dataVector["impact on system"], label = f"Resulting real impact\nrespecting timing and deviation")
 
 
@@ -140,9 +146,9 @@ def plotGraphs(sp, dataVector):
         #i.set_xlim(-3, sp["simulationLength"])
 
 
-    ax1.legend()
-    ax2.legend()
-    ax3.legend()
+    ax1.legend(fontsize = 8)
+    ax2.legend(fontsize = 8)
+    ax3.legend(fontsize = 8)
 
     plt.show()
 
@@ -178,7 +184,8 @@ def calculateSimulation(sp, dataVector):
         current_Value_Controlled = dataVector["corrected system value"][current_Timestep]
         current_Value_Uncontrolled = dataVector["uncorrected system value"][current_Timestep]
         #dataVector["corrected system value"][calculation_Timestep] is the value that is being calculated because of latency
-
+      
+            
         #Calculates the current Delta and enters it
         dataVector["delta_controlled"][current_Timestep] = sp["targetValue"] - current_Value_Controlled
         dataVector["delta_uncontrolled"][current_Timestep] = sp["targetValue"] - current_Value_Uncontrolled
@@ -192,22 +199,29 @@ def calculateSimulation(sp, dataVector):
         #Calculates the movement of the system without a controller
         #For the first values (for timesteps in "latency") and if the value is below the target, the system will move towards the target value at full speed
         if current_Timestep in range(sp["latency"] + sp["delay"]) or dataVector["uncorrected system value"][current_Timestep - sp["latency"]] >= sp["targetValue"]:
-            dataVector["uncorrected system value"][current_Timestep + 1] = dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled
+            dataVector["uncorrected system value"][current_Timestep + sp["delay"]] = dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled
         #In case the system is above the target value there will be no change other than the natural tendency of the system to move towards the baseline value    
         elif dataVector["uncorrected system value"][current_Timestep - sp["latency"]] < sp["targetValue"]:
-            dataVector["uncorrected system value"][current_Timestep + 1] = dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled + sp["maxRateOfChange"]
+            dataVector["uncorrected system value"][current_Timestep + sp["delay"]] = dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled + sp["maxRateOfChange"]
         
-            
-
+         
 
         #The controller can't act for the first timesteps because of latency. Only the deviation has an impact
         if dataVector["corrected system value"][current_Timestep] == sp["startValue"] or current_Timestep in range(sp["latency"]):  
-            dataVector["corrected system value"][current_Timestep + 1] = dataVector["corrected system value"][current_Timestep] + deviation_controlled
+            dataVector["corrected system value"][current_Timestep + sp["delay"]] = dataVector["corrected system value"][current_Timestep] + deviation_controlled
         else:
         #Afterwards the controllers effect is added. But it is offset by latency
         #Important! The controller value is multiplied by the maxRateOfChange because a controller doesn't change the temperature itself, but the modulation of the factors that change the system.
-            dataVector["corrected system value"][current_Timestep + 1] = dataVector["corrected system value"][current_Timestep] + deviation_controlled + dataVector["effective controller total"][current_Timestep - sp["latency"]]
+            dataVector["corrected system value"][current_Timestep + sp["delay"]] = dataVector["corrected system value"][current_Timestep] + deviation_controlled + dataVector["effective controller total"][current_Timestep - sp["latency"]]
         #Calculates the values of the different controllers
+        
+        if sp["deviationStyle"] == "point" and current_Timestep == sp["deviationStart"]:
+            dataVector["corrected system value"][current_Timestep + 1] += sp["deviationValue"]
+            dataVector["uncorrected system value"][current_Timestep + 1] += sp["deviationValue"]
+        elif sp["deviationStyle"] == "constant" and current_Timestep in range(sp["deviationStart"],sp["deviationStart"]+sp["deviationLength"]):
+            dataVector["corrected system value"][current_Timestep + 1] += sp["deviationValue"]
+            dataVector["uncorrected system value"][current_Timestep + 1] += sp["deviationValue"]
+        
         pValue, iValue, dValue = calculateControllers(sp, dataVector["delta_controlled"], current_Timestep - sp["delay"])
 
 
@@ -219,6 +233,7 @@ def calculateSimulation(sp, dataVector):
             dataVector["effective controller total"][current_Timestep] = min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"])
         elif sp["belowZero"] == False:
             dataVector["effective controller total"][current_Timestep] = max(min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"]),0)
+        
         dataVector["pController"][current_Timestep] = pValue
         dataVector["iController"][current_Timestep] = iValue
         dataVector["dController"][current_Timestep] = dValue
