@@ -88,47 +88,49 @@ def plotGraphs(sp, dataVector):
     ax7 = plt.subplot2grid(plotGrid,(2,6),colspan=2)
     
     ax1.set_title("System values over time")
-    ax1.plot(length, dataVector["corrected system value"], label= f"system using {controllerName}-controller", color="green")
+    ax1.plot(length, dataVector["corrected system value"], label= f"system using {controllerName}-controller", color="blue")
     ax1.plot(length, dataVector["uncorrected system value"], label= "system without a controller", color="orange")
 
-    ax1.axhline(y= sp["targetValue"], color='blue', linestyle=('dashed'), linewidth= lineWidth, label="target value")
-    ax1.axhline(y= sp["deviationReference"], color='purple', linestyle=('dashed'), linewidth= lineWidth, label = "system baseline")
-    ax1.axhline(y= dataVector["analytics"]["median corrected"], color="green", linestyle=('dashed'), linewidth= lineWidth, label=f"median controlled = {round(dataVector['analytics']['median corrected'],3)}")
+    ax1.axhline(y= sp["targetValue"], color='purple', linestyle=('dashed'), linewidth= lineWidth, label="target value")
+    ax1.axhline(y= sp["deviationReference"], color='black', linestyle=('dashed'), linewidth= lineWidth, label = "system baseline (natural state)")
+    ax1.axhline(y= dataVector["analytics"]["median corrected"], color="blue", linestyle=('dashed'), linewidth= lineWidth, label=f"median controlled = {round(dataVector['analytics']['median corrected'],3)}")
     ax1.axhline(y= dataVector["analytics"]["median uncorrected"], color="orange", linestyle=('dashed'), linewidth= lineWidth, label=f"median uncontrolled = {round(dataVector['analytics']['median uncorrected'],3)}")
 
 
     ax2.set_title("Delta between the system's values and target value over time")
-    ax2.axhline(y= 0, color="green", linestyle=('dashed'), linewidth= lineWidth, label=f"ideal delta of 0")
+    ax2.axhline(y= 0, color="black", linestyle=('dashed'), linewidth= lineWidth, label=f"ideal delta of 0")
     #ax2.axhline(y= getMedian(sp, dataVector), color="purple", linestyle=('dashed'), linewidth= lineWidth, label=f"median of the last {-medianLen}\ndelta values")
-    ax2.step(length, dataVector["delta_controlled"], where="post", label="delta of system using controller")
-    ax2.step(length, dataVector["delta_uncontrolled"], where="post", label="delta of system without controller")
+    delta_controlled_forGraph = [-1 * i for i in dataVector["delta_controlled"]]
+    delta_uncontrolled_forGraph = [-1 * i for i in dataVector["delta_uncontrolled"]]
+    ax2.step(length, delta_controlled_forGraph, where="post", linewidth= lineWidth, color="blue", label="delta of system using controller")
+    ax2.step(length, delta_uncontrolled_forGraph, where="post", linewidth= lineWidth, color="orange", label="delta of system without controller")
 
 
     ax3.set_title("Total controller output and effective impact over time")
-    ax3.step(length, dataVector["controller total"],where="post", label = f"Total controller impulse \n({sp['activeControllers'].upper()} component/s)")
-    ax3.step(length, dataVector["effective controller total"],where="post", label = f"Effective controller impact \n({sp['activeControllers'].upper()} component/s")
-    #ax3.step(length, dataVector["impact on system"],where="post", label = "Controller value \nminus system deviation")
+    
+    ax3.step(length, dataVector["effective controller total"],where="post", linewidth= lineWidth, color="blue", label = f"Effective controller impact \n({sp['activeControllers'].upper()} component/s")
+    ax3.step(length, dataVector["controller total"],where="post", color="lightblue", linestyle=('dotted'), label = f"Total controller impulse \n({sp['activeControllers'].upper()} component/s)")
     ax3.axhline(y= sp["maxRateOfChange"], color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"maximal rate of change \n= {sp['maxRateOfChange']} {sp['unit']} / {sp['timeUnit']}")
     if sp["belowZero"] == False:
         ax3.axhline(y= 0, color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"minimal rate of change = 0")
-    ax3.plot(length, dataVector["impact on system"], label = f"Resulting real impact\nrespecting timing and deviation")
+    ax3.plot(length, dataVector["impact on system"], linewidth= lineWidth, color = "purple", label = f"Resulting real impact\nrespecting timing and deviation")
 
 
     ax4.set_title("P-Controller output over time")
-    ax4.step(length, dataVector["pController"], where="post")
+    ax4.step(length, dataVector["pController"], where="post", linewidth= lineWidth, color="blue")
 
 
     ax5.set_title("I-Controller output over time")
-    ax5.step(length, dataVector["iController"], where="post")
+    ax5.step(length, dataVector["iController"], where="post", linewidth= lineWidth, color="blue")
 
 
     ax6.set_title("D-Controller output over time")
-    ax6.step(length, dataVector["dController"], where="post")
+    ax6.step(length, dataVector["dController"], where="post", linewidth= lineWidth, color="blue")
 
 
     ax7.set_title(f"System drift \n(towards baseline)")
     ax7.axhline(y= 0, color='red', linestyle=('dashed'), linewidth= lineWidth)
-    ax7.plot(length, dataVector["system drift"])
+    ax7.plot(length, dataVector["system drift"],  linewidth= lineWidth, color="black")
 
 
     for i in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]:
@@ -145,10 +147,10 @@ def plotGraphs(sp, dataVector):
         i.set_facecolor("white")
         #i.set_xlim(-3, sp["simulationLength"])
 
-
-    ax1.legend(fontsize = 8)
-    ax2.legend(fontsize = 8)
-    ax3.legend(fontsize = 8)
+    fontscl = 6
+    ax1.legend(fontsize = fontscl)
+    ax2.legend(fontsize = fontscl)
+    ax3.legend(fontsize = fontscl)
 
     plt.show()
 
