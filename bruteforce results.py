@@ -1,250 +1,203 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import time
 import csv
 
 
-def main(abc):
-    simulationParameters = {"activeControllers" : "pid".lower(),
-                        #"pFactor" : 0.3 ,
-                        #"iFactor" : 0.1 , "iLength" : 2,
-                        #"dFactor" : 0.1 , "dLength" : 2 ,
-                        #"delay": 1,
-                        #"latency" : 2 ,
-                        "simulationLength" : 201 ,
-                        "startValue" : 50 ,
-                        "targetValue" : 100 ,
-                        "deviation": 1, "deviationReference": 20,
-                        "medianLength": 30,
-                        "printDataRows": False
-                        }
-    simulationParameters.update(abc)
+def main():
+        
+
+    #ETA 4 h
+    pRange = range(0, 101)
+    iRange = range(0, 41)
+    dRange = range(0, 51)
+    iLengthRange = range(2, 6, 1)
+    dLengthRange = range(2, 6, 1)
+    counter = 0
+    total = len(pRange)*len(iRange)*len(dRange)*len(iLengthRange)*len(dLengthRange)
     
-    #Creates a "dataVector" in which all simulation data will be stored.
-    dataVector = createDataVector(simulationParameters)
-    #Calculates the simulation data
-    dataVector = calculateSimulation(simulationParameters, dataVector)
-    """
-    DATA VECTORS
-    "uncorrected system value",
-    "NO delta",
-    "NO corrected system value",
-    "NO controller total",
-    "NO pController",
-    "NO iController",
-    "NO dController",
-    "NO system drift",
-    "NO impact on system",
-    """
-
-    #printData(simulationParameters["printDataRows"], dataVector)
-
-    #printOverview(simulationParameters, dataVector)
+    bestAccuracy = []
     
-    #for i in range(len(dataVector["NO impact on system"])):
-     #   print(f'Impact on System: {dataVector["NO impact on system"][i]:20}, System deviation: {dataVector["NO system drift"][i]}')
-     
-    
-    #plotGraphs(simulationParameters ,dataVector)
+    for p in pRange:
+        p = p / 100
+        for i in iRange:
+            i = i / 100
+            for d in dRange:
+                d = d / 10
+                for iLength in iLengthRange:
+                    for dLength in dLengthRange:
+                        simulationParameters = {#General parameters
+                            "simulationLength" : 201 ,
+                            "startValue" : 20 ,
+                            "targetValue" : 230 ,
+                            
+                            "deviation": 1, "deviationReference": 20, #deviation is a factor
 
-    return np.median(dataVector["NO corrected system value"][medianLength(simulationParameters["simulationLength"],simulationParameters["medianLength"]):])
+            
+                            #Controller parameters
+                            "activeControllers" : "pid".lower(),
+                            
+                            "pFactor" : p ,
+                            "iFactor" : i , "iLength" : iLength,
+                            "dFactor" : d , "dLength" : dLength ,
+                            
+                            "delay": 1, #how long the controller takes to impact the system
+                            "latency" : 2 , #how long the controller takes to react to changes in the system
+                            
+                            
+                            #System parameters
+                            "maxRateOfChange" : 10,  #factor that determines how fast the system is able to be changed with/without a controller
+                            "belowZero" : False, #if the controller can go below zero
+                            
 
+                            #Additional stresses
+                            "deviationStart": 30,
+                            "deviationStyle": "constant", #point or constant
+                            "deviationValue" : -5,
+                            "deviationLength": 5,
+                            
+                            #Analytics
+                            "anaLength": 10, #Percentage of the simulation length that will be used to calculate the median                           
+                            }
+                        
+                        #Creates a "dataVector" in which all simulation data will be stored.
+                        dataVector = createDataVector(simulationParameters)
+                        #Calculates the simulation data
+                        dataVector = calculateSimulation(simulationParameters, dataVector)
+                        
+                        getAnalytics(simulationParameters, dataVector)
+                        
+                        bestAccuracy.append({ "accuracy":simulationParameters["targetValue"] - dataVector["analytics"]["median corrected"], "p": p, "i": i, "d": d, "iLength": iLength, "dLength": dLength})
+                        
+                        counter += 1
+                        print(f"{counter}/{total} done ({round(counter/total*100,2)}%)")
+                    
+                    
+    def mf(e):
+        return e["accuracy"]    
+    bestAccuracy.sort(key = mf)
+                        
+    csvFile = open("bestAccuracy.csv", "w")
+    csvWriter = csv.writer(csvFile)
+    csvWriter.writerow(["Accuracy", "P", "I", "D", "Ilength", "Dlength"])
+    for entry in bestAccuracy:
+        csvWriter.writerow([entry["accuracy"], entry["p"], entry["i"], entry["d"], entry["iLength"], entry["dLength"]])
+    csvFile.close()
 
 #FUNCTIONS --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-def printOverview(sp, dataVector):
-    median = np.median(dataVector["NO corrected system value"][medianLength(sp["simulationLength"],sp["medianLength"]):])
 
-    print("\n")
-    print(f'Das durch den {sp["activeControllers"].upper()}-Regler geregelte System hatte auf den letzten {-medianLength(sp["simulationLength"],sp["medianLength"])} Zeitschritten einen Median von {median}.')
-    print(f'Damit liegt er nach {sp["simulationLength"] - 1} Zeitschritten ca. {round(sp["targetValue"] - median, 3)} abseits des Zielwerts von {sp["targetValue"]}.')
-    return 0
+#Creates the dataVector dict which holds all calculated values
+def createDataVector(sp):   
+    varlist = [
+        "uncorrected system value",
+        "delta_controlled",
+        "delta_uncontrolled",
+        "corrected system value",
+        "controller total",
+        "effective controller total",
+        "pController",
+        "iController",
+        "dController",
+        "system drift",
+        "impact on system",
+        "analytics",
+    ]
 
+    dataVector = {}
 
+    for var in varlist:
+        dataVector[var] = [0 for _ in range(sp["simulationLength"] + sp["latency"] + sp["delay"])]
 
-def printData(bool, dataVector):
-    if bool:
-        for i in dataVector:
-            print(f"{i}            - {dataVector[i]}")
+    #Sets the values for the first Row of the DataVector to 1 for all values after latency.
+    #The first Row are multipliers, so for the duration of the latency the calculated values will be set to 0 and all following values will be multiplied by 1.
+    #for i in range(sp["simulationLength"] + sp["latency"]):
+    dataVector["uncorrected system value"][0] = sp["startValue"]
+    dataVector["corrected system value"][0] = sp["startValue"]
 
+    return dataVector
 
-
-def plotGraphs(sp, dataVector):
-    lineWidth = 0.75
-    fig = plt.figure(figsize= (12,8), dpi= 120, layout="tight", linewidth= lineWidth,facecolor=(0.8,0.8,0.8),)
-    #fig = plt.figure(figsize= (16,10), dpi= 120, layout="tight", linewidth= lineWidth,facecolor=(0.8,0.8,0.8),)
-    fig.suptitle(f"{sp['activeControllers'].upper()}-controller simulation results", fontsize=24)
-
-    #If "useIndividualOffsets" is not selected these vector IDs will be used to display the graphs
-
-    #Plot is 5 deep and 8 wide
-    plotGrid = (5,8)
-    length = range(sp["simulationLength"])
-    medianLen = medianLength(sp["simulationLength"],sp["medianLength"])
-
-    
-    
-    #System behaviour
-    ax1 = plt.subplot2grid(plotGrid,(0,0),colspan= 4, rowspan = 3)
-    #DELTA
-    ax2 = plt.subplot2grid(plotGrid,(3,0),colspan= 4, rowspan = 2)
-
-    #PID Value graph
-    ax3 = plt.subplot2grid(plotGrid,(0,4),colspan=4, rowspan = 2)
-    ax4 = plt.subplot2grid(plotGrid,(2,4),colspan=2)
-    ax5 = plt.subplot2grid(plotGrid,(3,4),colspan=2)
-    ax6 = plt.subplot2grid(plotGrid,(4,4),colspan=2)
-
-    #Deviation graph
-    ax7 = plt.subplot2grid(plotGrid,(2,6),colspan=2)
-
-    ax1.set_title("System values over time")
-    ax1.plot(length, dataVector["NO corrected system value"], label= "controlled system value", color="green")
-    ax1.plot(length, dataVector["uncorrected system value"], label= "uncontrolled system value", color="orange")
-
-    ax1.axhline(y= sp["targetValue"], color='green', linestyle=('dashed'), linewidth= lineWidth, label="controller target")
-    ax1.axhline(y= sp["deviationReference"], color='red', linestyle=('dashed'), linewidth= lineWidth, label = "system baseline")
-    ax1.axhline(y= np.median(dataVector["NO corrected system value"][medianLen:]), color="purple", linestyle=('dashed'), linewidth= lineWidth, label=f"median of the last {-medianLen}\ncontrolled system values")
-
-
-    ax2.set_title("Delta between controlled system value and target value over time")
-    ax2.axhline(y= 0, color="green", linestyle=('dashed'), linewidth= lineWidth, label="0 - target")
-    ax2.axhline(y= np.median(dataVector["NO delta"][medianLen:]), color="purple", linestyle=('dashed'), linewidth= lineWidth, label=f"median of the last {-medianLen}\ndelta values")
-    ax2.step(length, dataVector["NO delta"], where="post")
-
-
-    ax3.set_title("Total controller output and effective impact over time")
-    ax3.step(length, dataVector["NO controller total"],where="post", label = f"Total controller impulse \n({sp['activeControllers'].upper()} components)")
-    ax3.step(length, dataVector["NO impact on system"],where="post", label = "Controller value \nminus system deviation")
-
-
-    ax4.set_title("P-Controller output over time")
-    ax4.step(length, dataVector["NO pController"], where="post")
-
-
-    ax5.set_title("I-Controller output over time")
-    ax5.step(length, dataVector["NO iController"], where="post")
-
-
-    ax6.set_title("D-Controller output over time")
-    ax6.step(length, dataVector["NO dController"], where="post")
-
-
-    ax7.set_title("System drift")
-    ax7.axhline(y= 0, color='red', linestyle=('dashed'), linewidth= lineWidth)
-    ax7.plot(length, dataVector["NO system drift"])
-
-
-    for i in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]:
-        i.set_xlabel("Simulation timesteps")
-        i.set_facecolor("white")
-        #i.set_xlim(-3, sp["simulationLength"])
-
-
-    ax1.legend()
-    ax2.legend()
-    ax3.legend()
-
-    plt.show()
-
-
-
-def medianLength(simLength, medianLength):
-    return - round(simLength / 100 * medianLength)
-
-
-
+        
+#Calculates the simulation        
 def calculateSimulation(sp, dataVector):
     #sp is the SimulationParameters Dict
     #dataVector is the dataVector in which all data will be stored
 
-    #Iterates over enough timesteps to do the simulation.
-    #Skipping the last "latency" numbers of the list. This is because the last values won't be part of the graph anyways.
-    #Everything marked with a "2" is related to the "useIndividualOffset" feature. It basically calculates everything a second time in parallel.
+    #Iterates over all timesteps in the simulation.
     for current_Timestep in range(sp["simulationLength"]):
 
-        #calculation_Timestep = current_Timestep + sp["latency"]
+        #dataVector["un/corrected system value"][current_Timestep] is the current value of the system
+        current_Value_Controlled = dataVector["corrected system value"][current_Timestep]
+        current_Value_Uncontrolled = dataVector["uncorrected system value"][current_Timestep]
+            
+            
+        #Calculates the current Delta and stores it
+        dataVector["delta_controlled"][current_Timestep] = sp["targetValue"] - current_Value_Controlled
+        dataVector["delta_uncontrolled"][current_Timestep] = sp["targetValue"] - current_Value_Uncontrolled
+        
 
-        #dataVector["NO corrected system value"][current_Timestep] is the current value of the system
-        current_Value = dataVector["NO corrected system value"][current_Timestep]
-        #dataVector["NO corrected system value"][calculation_Timestep] is the value that is being calculated because of latency
+        #Calculates the systems deviation (natural drift towards the baseline value)
+        deviation_controlled = calculateDeviation(sp, current_Value_Controlled)
+        deviation_uncontrolled = calculateDeviation(sp, current_Value_Uncontrolled)
+        
+                
+        #Adds the deviation to the next simulation step
+        dataVector["corrected system value"][current_Timestep + 1] += dataVector["corrected system value"][current_Timestep] + deviation_uncontrolled
+        dataVector["uncorrected system value"][current_Timestep + 1] += dataVector["uncorrected system value"][current_Timestep] + deviation_uncontrolled        
+        
+        
+        #Calculates the controllers and stores the values in the dataVector
+        pValue, iValue, dValue = calculateControllers(sp, dataVector["delta_controlled"], current_Timestep - sp["latency"])
+        
+        dataVector["pController"][current_Timestep] = pValue
+        dataVector["iController"][current_Timestep] = iValue
+        dataVector["dController"][current_Timestep] = dValue
+        
+        dataVector["controller total"][current_Timestep] = pValue + iValue + dValue
+        
+        
+        #Since the maximum rate of change is limited by factors like the power of a heating element, the controller can't change the system faster than the maximum rate of change
+        if sp["belowZero"] == True:
+            dataVector["effective controller total"][current_Timestep] = min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"])
+        elif sp["belowZero"] == False:
+            dataVector["effective controller total"][current_Timestep] = max(min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"]),0)
+        
 
-        #Calculates the current Delta and enters it
-        dataVector["NO delta"][current_Timestep] = sp["targetValue"] - current_Value
-
-        #Calculates the systems deviation
-        deviation = calculateDeviation(sp, current_Value)
 
         #Calculates the movement of the system without a controller
-        dataVector["uncorrected system value"][current_Timestep + 1] = dataVector["uncorrected system value"][current_Timestep] + calculateDeviation(sp, dataVector["uncorrected system value"][current_Timestep])
-
-        #The controller can't act for the first timesteps because of latency. Only the deviation has an impact
-        if dataVector["NO corrected system value"][current_Timestep] == sp["startValue"] or current_Timestep in range(sp["latency"]):
-            dataVector["NO corrected system value"][current_Timestep + 1] = dataVector["NO corrected system value"][current_Timestep] + deviation
-        else:
-        #Afterwards the controllers effect is added. But it is offset by latency
-            dataVector["NO corrected system value"][current_Timestep + 1] = dataVector["NO corrected system value"][current_Timestep] + deviation + dataVector["NO controller total"][current_Timestep - sp["latency"]]
-        #Calculates the values of the different controllers
-        pValue, iValue, dValue = calculateControllers(sp, dataVector["NO delta"], current_Timestep - sp["delay"])
-
-
-        #Enters the calculated controller Values into the dataVector
-        #Add Values to Vector 9 respecting the individual offsets for each controller
-        
-        dataVector["NO controller total"][current_Timestep] = pValue + iValue + dValue
-        dataVector["NO pController"][current_Timestep] = pValue
-        dataVector["NO iController"][current_Timestep] = iValue
-        dataVector["NO dController"][current_Timestep] = dValue
-        dataVector["NO system drift"][current_Timestep] = deviation
-
-        #Adds the (should be negative) total controller value to the previous value on the calculation_Timestep
-        #dataVector["NO corrected system value"][calculation_Timestep] = totalControllerValue
-
-    #Calculates the effective influence of the controllers on the system by adding the system deviation to it.
-    #Takes the latency of the controllers into account
-    for timestep in range(sp["simulationLength"] - sp["latency"] - sp["delay"]):
-        if timestep < sp["latency"] + sp["delay"]:
-            dataVector["NO impact on system"][timestep] = dataVector["NO system drift"][timestep]
+        #For the first values (for timesteps in "latency") and if the value is below the target, the system will move towards the target value at full speed
+        #Waits for "latency" and "delay" because the uncontrolled system has no delay. It is assumed that since switching is between boolean values the system will react instantly.
+        if current_Timestep not in range(sp["latency"]):
             
-        dataVector["NO impact on system"][timestep + sp["latency"] + sp["delay"]] = dataVector["NO controller total"][timestep + sp["latency"]] + dataVector["NO system drift"][timestep]
+            if dataVector["uncorrected system value"][current_Timestep - sp["latency"]] < sp["targetValue"]:
+                dataVector["uncorrected system value"][current_Timestep + sp["delay"]] += sp["maxRateOfChange"]
+                
+            dataVector["corrected system value"][current_Timestep + sp["delay"]] += dataVector["effective controller total"][current_Timestep]
+                        
+        
+        
+        if sp["deviationStyle"] == "point" and current_Timestep == sp["deviationStart"]:
+            dataVector["corrected system value"][current_Timestep + 1] += sp["deviationValue"]
+            dataVector["uncorrected system value"][current_Timestep + 1] += sp["deviationValue"]
+        elif sp["deviationStyle"] == "constant" and current_Timestep in range(sp["deviationStart"],sp["deviationStart"]+sp["deviationLength"]):
+            dataVector["corrected system value"][current_Timestep + 1] += sp["deviationValue"]
+            dataVector["uncorrected system value"][current_Timestep + 1] += sp["deviationValue"]
+        
+        
+        dataVector["system drift"][current_Timestep] = deviation_controlled
 
+
+        
+    for timestep in range(sp["simulationLength"]):
+        dataVector["impact on system"][timestep + sp["delay"]] += dataVector["effective controller total"][timestep]
+    
+    
+    
+    #Shortens the dataVector to the length of the simulation. This is necessary because the dataVector is longer than the simulation length to account for latency and delay.
     truncatedVector = {}
     for vector in dataVector:
         truncatedVector[vector] = dataVector[vector][:sp["simulationLength"]]
     return truncatedVector
 
 
-
-def createDataVector(sp):
-    #sp is the SimulationParameters Dict
-    #NO = no offset
-
-    varlist = [
-        "uncorrected system value",
-        "NO delta",
-        "NO corrected system value",
-        "NO controller total",
-        "NO pController",
-        "NO iController",
-        "NO dController",
-        "NO system drift",
-        "NO impact on system"
-    ]
-
-    dataVector = {}
-
-    for var in varlist:
-        dataVector[var] = [0 for _ in range(sp["simulationLength"] + sp["latency"])]
-
-    #Sets the values for the first Row of the DataVector to 1 for all values after latency.
-    #The first Row are multipliers, so for the duration of the latency the calculated values will be set to 0 and all following values will be multiplied by 1.
-    #for i in range(sp["simulationLength"] + sp["latency"]):
-    dataVector["uncorrected system value"][0] = sp["startValue"]
-    dataVector["NO corrected system value"][0] = sp["startValue"]
-
-    return dataVector
-
-
-
+#Calculates the drift towards baseline for a given value
 def calculateDeviation(sp, current_Value):
     #Calculates where the current value lies between the Base and target value. Multiplies that with the deviation factor.
     value_Base = sp["deviationReference"]
@@ -254,7 +207,7 @@ def calculateDeviation(sp, current_Value):
     return deviation
 
 
-
+#Calculates the controller values
 def calculateControllers(sp, dataVector, current_Timestep):
 
     current_Value = dataVector[current_Timestep]
@@ -295,45 +248,38 @@ def calculateControllers(sp, dataVector, current_Timestep):
     return pValue, iValue, dValue
 
 
-
+#P component
 def pController(current_Value, pFactor):
     return pFactor * current_Value
 
+#I component
 def iController(integrationArray, iFactor):
     return iFactor * np.trapz(integrationArray)
 
+#D component
 def dController(current_Value, past_Value, dLength, dFactor):
-    return -1 * dFactor * (current_Value - past_Value) / dLength
+    return dFactor * (current_Value - past_Value) / dLength
 
+
+#Gets analytics values
+def getAnalytics(sp, dataVector):
+    #Calculates analytics to display in the graph and for automated analysis
+    timeWindow = round(sp["simulationLength"] / 100 * sp["anaLength"])
+    dataVector["analytics"] = {}
+    dataVector["analytics"]["median corrected"] = np.median(dataVector["corrected system value"][-timeWindow:])
+    dataVector["analytics"]["median uncorrected"] = np.median(dataVector["uncorrected system value"][-timeWindow:])
+    dataVector["analytics"]["max corrected end"] = max(dataVector["corrected system value"][-timeWindow:])
+    dataVector["analytics"]["min corrected end"] = min(dataVector["corrected system value"][-timeWindow:])
+    dataVector["analytics"]["max uncorrected end"] = max(dataVector["uncorrected system value"][-timeWindow:])
+    dataVector["analytics"]["min uncorrected end"] = min(dataVector["uncorrected system value"][-timeWindow:])
+    dataVector["analytics"]["middle corrected"] = dataVector["analytics"]["max corrected end"] - dataVector["analytics"]["min corrected end"]
+    dataVector["analytics"]["middle uncorrected"] = dataVector["analytics"]["max uncorrected end"] - dataVector["analytics"]["min uncorrected end"]
+    dataVector["analytics"]["max corrected total"] = max(dataVector["corrected system value"])
+    dataVector["analytics"]["min corrected total"] = min(dataVector["corrected system value"])
+    dataVector["analytics"]["max uncorrected total"] = max(dataVector["uncorrected system value"])
+    dataVector["analytics"]["min uncorrected total"] = min(dataVector["uncorrected system value"])
+        
+        
 
 if __name__ == "__main__":
-    results = {}
-    counter = 0
-    for dela in range(0,1):
-        for lat in range(1,2):
-            for ile in range(2,3):
-                for dle in range(2,3):
-                    for pfa in range(0, 51, 1):
-                        pfa2 = pfa / 100
-                        for ifa in range(0, 51, 1):
-                            ifa2 = ifa / 100
-                            for dfa in range(0, 51, 1):
-                                dfa2 = dfa / 100
-                                counter += 1
-                                print(f"{counter} / {51 * 51, 51 * 2 * 2 * 2 * 2}")
-                                simulationParameters = {"pFactor" : pfa2 ,
-                                                        "iFactor" : ifa2 , "iLength" : ile,
-                                                        "dFactor" : dfa2 , "dLength" : dle ,
-                                                        "delay": dela,
-                                                        "latency" : lat ,
-                                                        }
-                                median = main(simulationParameters)
-                                if abs(100 - median) < 1:
-                                    results[counter] = {"delay": dela, "latency": lat, "iLength": ile, "dLength": dle, "pFactor": pfa2, "iFactor": ifa2, "dFactor": dfa2, "median": abs(100 - median)}
-    
-    with open('results.csv', 'w', newline='') as csvfile:
-        fieldnames = ['pFactor', 'iFactor', 'dFactor','delay', 'latency','iLength', 'dLength', 'median']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()                            
-        for i in results:
-            writer.writerow({'delay': results[i]["delay"], 'latency': results[i]["latency"], 'iLength': results[i]["iLength"], 'dLength': results[i]["dLength"], 'pFactor': results[i]["pFactor"], 'iFactor': results[i]["iFactor"], 'dFactor': results[i]["dFactor"], 'median': results[i]["median"]})
+    main()
