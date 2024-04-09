@@ -3,27 +3,44 @@ import matplotlib.pyplot as plt
 
 
 def main():
-    simulationParameters = {"activeControllers" : "pi".lower(),
-                            "maxRateOfChange" : 10,  #factor that determines how fast the system is able to be changed with/without a controller
-                            "pFactor" : 0.3 ,
-                            "iFactor" : 0.02 , "iLength" : 5,
-                            "dFactor" : 1 , "dLength" : 2 ,
-                            "belowZero" : True, #if the controller can go below zero
-                            "delay": 1, #how long the controller takes to impact the system
-                            "latency" : 2 , #how long the controller takes to react to changes in the system
+    simulationParameters = {#General parameters
                             "simulationLength" : 201 ,
-                            "startValue" : 0 ,
-                            "targetValue" : 100 ,
+                            "startValue" : 20 ,
+                            "targetValue" : 230 ,
+                            
                             "deviation": 1, "deviationReference": 80, #deviation is a factor
-                            "anaLength": 10, #Percentage of the simulation length that will be used to calculate the median
-                            "printDataRows": False,
-                            "timeUnit": "s",
+
+                            #Units
+                            "timeUnit": "10 s",
                             "unitName": "Temperature",
                             "unit": "°C",
+        
+                            #Controller parameters
+                            "activeControllers" : "pi".lower(),
+                            
+                            "pFactor" : 0.5 ,
+                            "iFactor" : 0.02 , "iLength" : 5,
+                            "dFactor" : 1 , "dLength" : 2 ,
+                            
+                            "delay": 1, #how long the controller takes to impact the system
+                            "latency" : 2 , #how long the controller takes to react to changes in the system
+                            
+                            
+                            #System parameters
+                            "maxRateOfChange" : 10,  #factor that determines how fast the system is able to be changed with/without a controller
+                            "belowZero" : False, #if the controller can go below zero
+                            
+
+                            #Additional stresses
                             "deviationStart": 30,
-                            "deviationValue" : 10,
-                            "deviationLength": 10,
-                            "deviationStyle": "constant" #point or constant
+                            "deviationStyle": "constant", #point or constant
+                            "deviationValue" : -5,
+                            "deviationLength": 3,
+                            
+                            #Analytics
+                            "anaLength": 10, #Percentage of the simulation length that will be used to calculate the median
+                            "printDataRows": False
+                            
                             }
     
     #Creates a "dataVector" in which all simulation data will be stored.
@@ -219,6 +236,7 @@ def calculateSimulation(sp, dataVector):
             dataVector["corrected system value"][current_Timestep + sp["delay"]] = dataVector["corrected system value"][current_Timestep] + deviation_controlled + dataVector["effective controller total"][current_Timestep - sp["latency"]]
         #Calculates the values of the different controllers
         
+        
         if sp["deviationStyle"] == "point" and current_Timestep == sp["deviationStart"]:
             dataVector["corrected system value"][current_Timestep + 1] += sp["deviationValue"]
             dataVector["uncorrected system value"][current_Timestep + 1] += sp["deviationValue"]
@@ -281,7 +299,7 @@ def createDataVector(sp):
     dataVector = {}
 
     for var in varlist:
-        dataVector[var] = [0 for _ in range(sp["simulationLength"] + sp["latency"])]
+        dataVector[var] = [0 for _ in range(sp["simulationLength"] + sp["latency"] + sp["delay"])]
 
     #Sets the values for the first Row of the DataVector to 1 for all values after latency.
     #The first Row are multipliers, so for the duration of the latency the calculated values will be set to 0 and all following values will be multiplied by 1.
