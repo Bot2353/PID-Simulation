@@ -1,88 +1,92 @@
+import concurrent.futures
+import time
 import numpy as np
 import csv
 
 
 def main():
-        
+    timeStart = time.time() 
 
     #ETA 4 h
     pRange = range(0, 101)
     iRange = range(0, 41)
     dRange = range(0, 51)
     iLengthRange = range(2, 6, 1)
-    dLengthRange = range(2, 6, 1)
-    counter = 0
-    total = len(pRange)*len(iRange)*len(dRange)*len(iLengthRange)*len(dLengthRange)
-    
-    bestAccuracy = []
+    dLengthRange = range(2, 6, 1)   
+    combinations = []
     
     for p in pRange:
-        p = p / 100
         for i in iRange:
-            i = i / 100
             for d in dRange:
-                d = d / 10
-                for iLength in iLengthRange:
-                    for dLength in dLengthRange:
-                        simulationParameters = {#General parameters
-                            "simulationLength" : 201 ,
-                            "startValue" : 20 ,
-                            "targetValue" : 230 ,
-                            
-                            "deviation": 1, "deviationReference": 20, #deviation is a factor
+                for iL in iLengthRange:
+                    for dL in dLengthRange:
+                        combinations.append({"p": p / 100, "i": i / 100, "d": d / 100, "iL": iL, "dL": dL})
+                        
+    print(f"{len(combinations)} combinations, ETC is {(len(combinations) * 0.0007) / 60} min")
+    
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = [executor.submit(simulate, comb["p"], comb["i"], comb["d"], comb["iL"], comb["dL"]) for comb in combinations]
+        
+        
+    results.sort(key=lambda x: x.result()["medianDelta"], reverse=False)
+    
+    with open("results.csv", "w", newline="") as csvfile:
+        fieldnames = ["p", "i", "d", "iL", "dL", "medianDelta", "middle", "max", "min"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        writer.writeheader()
+        for result in results:
+            writer.writerow(result.result())
+    
+    timeEnd = time.time()
+    
+    print(f"Time: {round(timeEnd - timeStart,2)} s")             
 
-            
-                            #Controller parameters
-                            "activeControllers" : "pid".lower(),
-                            
-                            "pFactor" : p ,
-                            "iFactor" : i , "iLength" : iLength,
-                            "dFactor" : d , "dLength" : dLength ,
-                            
-                            "delay": 1, #how long the controller takes to impact the system
-                            "latency" : 2 , #how long the controller takes to react to changes in the system
-                            
-                            
-                            #System parameters
-                            "maxRateOfChange" : 10,  #factor that determines how fast the system is able to be changed with/without a controller
-                            "belowZero" : False, #if the controller can go below zero
-                            
-
-                            #Additional stresses
-                            "deviationStart": 30,
-                            "deviationStyle": "constant", #point or constant
-                            "deviationValue" : -5,
-                            "deviationLength": 5,
-                            
-                            #Analytics
-                            "anaLength": 10, #Percentage of the simulation length that will be used to calculate the median                           
-                            }
-                        
-                        #Creates a "dataVector" in which all simulation data will be stored.
-                        dataVector = createDataVector(simulationParameters)
-                        #Calculates the simulation data
-                        dataVector = calculateSimulation(simulationParameters, dataVector)
-                        
-                        getAnalytics(simulationParameters, dataVector)
-                        
-                        bestAccuracy.append({ "accuracy":simulationParameters["targetValue"] - dataVector["analytics"]["median corrected"], "p": p, "i": i, "d": d, "iLength": iLength, "dLength": dLength})
-                        
-                        counter += 1
-                        print(f"{counter}/{total} done ({round(counter/total*100,2)}%)")
-                    
-                    
-    def mf(e):
-        return e["accuracy"]    
-    bestAccuracy.sort(key = mf)
-                        
-    csvFile = open("bestAccuracy.csv", "w")
-    csvWriter = csv.writer(csvFile)
-    csvWriter.writerow(["Accuracy", "P", "I", "D", "Ilength", "Dlength"])
-    for entry in bestAccuracy:
-        csvWriter.writerow([entry["accuracy"], entry["p"], entry["i"], entry["d"], entry["iLength"], entry["dLength"]])
-    csvFile.close()
 
 #FUNCTIONS --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+def simulate(p, i, d, iLength, dLength):
+    simulationParameters = {#General parameters
+    "simulationLength" : 201 ,
+    "startValue" : 20 ,
+    "targetValue" : 230 ,
+    
+    "deviation": 1, "deviationReference": 20, #deviation is a factor
+
+
+    #Controller parameters
+    "activeControllers" : "pid".lower(),
+    
+    "pFactor" : p ,
+    "iFactor" : i , "iLength" : iLength,
+    "dFactor" : d , "dLength" : dLength ,
+    
+    "delay": 1, #how long the controller takes to impact the system
+    "latency" : 2 , #how long the controller takes to react to changes in the system
+    
+    
+    #System parameters
+    "maxRateOfChange" : 10,  #factor that determines how fast the system is able to be changed with/without a controller
+    "belowZero" : False, #if the controller can go below zero
+    
+
+    #Additional stresses
+    "deviationStart": 30,
+    "deviationStyle": "constant", #point or constant
+    "deviationValue" : -5,
+    "deviationLength": 5,
+    
+    #Analytics
+    "anaLength": 10, #Percentage of the simulation length that will be used to calculate the median                           
+    }
+                        
+    #Creates a "dataVector" in which all simulation data will be stored.
+    dataVector = createDataVector(simulationParameters)
+    #Calculates the simulation data
+    dataVector = calculateSimulation(simulationParameters, dataVector)
+
+    getAnalytics(simulationParameters, dataVector)
+
+    return {"p": p, "i": i, "d": d, "iL": iLength, "dL": dLength, "medianDelta": abs(dataVector["analytics"]["median corrected"] - simulationParameters["targetValue"]), "middle":dataVector["analytics"]["middle corrected"] ,"max": dataVector["analytics"]["max corrected total"], "min": dataVector["analytics"]["min corrected total"]}
 
 #Creates the dataVector dict which holds all calculated values
 def createDataVector(sp):   
