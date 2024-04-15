@@ -34,7 +34,7 @@ def main():
                             #Additional stresses
                             "deviationStart": 30,
                             "deviationStyle": "constant", #point or constant
-                            "deviationValue" : -5,
+                            "deviationValue" : 0,
                             "deviationLength": 5,
                             
                             #Analytics
@@ -139,7 +139,7 @@ def calculateSimulation(sp, dataVector):
         
         #Since the maximum rate of change is limited by factors like the power of a heating element, the controller can't change the system faster than the maximum rate of change
         if sp["belowZero"] == True:
-            dataVector["effective controller total"][current_Timestep] = min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"])
+            dataVector["effective controller total"][current_Timestep] = max(min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"]), -1 * sp["maxRateOfChange"])
         elif sp["belowZero"] == False:
             dataVector["effective controller total"][current_Timestep] = max(min(dataVector["controller total"][current_Timestep], sp["maxRateOfChange"]),0)
         
@@ -187,7 +187,10 @@ def calculateDeviation(sp, current_Value):
     value_Base = sp["deviationReference"]
     value_Target = sp["targetValue"]
     factor = sp["deviation"]
-    deviation = -1 * factor * (current_Value - value_Base) / (value_Target - value_Base)
+    if value_Base != 0:
+        deviation = -1 * factor * (current_Value - value_Base) / (value_Target - value_Base)
+    else:
+        deviation = 0
     return deviation
 
 
@@ -322,6 +325,8 @@ def plotGraphs(sp, dataVector):
     ax3.axhline(y= sp["maxRateOfChange"], color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"maximal rate of change \n= {sp['maxRateOfChange']} {sp['unit']} / {sp['timeUnit']}")
     if sp["belowZero"] == False:
         ax3.axhline(y= 0, color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"minimal rate of change = 0")
+    elif sp["belowZero"] == True:
+        ax3.axhline(y= -1 * sp["maxRateOfChange"], color="red", linestyle=('dashed'), linewidth= lineWidth, label=f"minimal rate of change \n= -{sp['maxRateOfChange']} {sp['unit']} / {sp['timeUnit']}")
     ax3.plot(length, dataVector["impact on system"], linewidth= lineWidth, color = "purple", label = f"Resulting real impact\nrespecting timing and deviation")
 
     #Controller output graphs
