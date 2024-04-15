@@ -1,4 +1,4 @@
-PID Controller simulationn
+PID-Regler Simulation
 
 Übung 1 - Ofen: <a href="https://colab.research.google.com/github/Bot2353/PID-Simulation/blob/main/%C3%9Cbung%201%20-%20Ein%20geregelter%20Ofen%20f%C3%BCr%20Fertigpizza.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
